@@ -1,5 +1,6 @@
 # bot.py
 import os
+import csv
 import schedule
 import time
 import logging
@@ -27,6 +28,34 @@ logging.basicConfig(
 def log(msg):
     print(msg)
     logging.info(msg)
+
+# ── Guardar trade en CSV ─────────────────────────────
+def save_trade(opp, signal, position):
+    filepath = 'logs/trades.csv'
+    file_exists = os.path.exists(filepath)
+
+    with open(filepath, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            'fecha', 'hora', 'ticker', 'empresa',
+            'accion', 'edge', 'probabilidad', 'votos',
+            'precio', 'monto', 'pct_capital', 'modo'
+        ])
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({
+            'fecha':       datetime.now().strftime('%Y-%m-%d'),
+            'hora':        datetime.now().strftime('%H:%M:%S'),
+            'ticker':      opp['ticker'],
+            'empresa':     opp['company'],
+            'accion':      signal['accion'],
+            'edge':        signal['edge'],
+            'probabilidad':signal['probabilidad'],
+            'votos':       signal['votos'],
+            'precio':      opp['price_data']['current'] if opp['price_data'] else 0,
+            'monto':       position['dollar_amount'],
+            'pct_capital': position['pct_bankroll'],
+            'modo':        'PAPER' if os.getenv('DRY_RUN') == 'True' else 'REAL'
+        })
 
 # ── Stop losses ──────────────────────────────────────
 def check_stop_losses():
@@ -81,6 +110,9 @@ def run_cycle():
 
             log(f'  Señal: {signal["accion"]} | Edge: {signal["edge"]} | Monto: ${position["dollar_amount"]}')
 
+            # Guardar en CSV siempre
+            save_trade(opp, signal, position)
+
             if os.getenv('DRY_RUN') == 'True':
                 log(f'  [DRY RUN] {signal["accion"]} {opp["ticker"]} ${position["dollar_amount"]}')
             else:
@@ -94,15 +126,13 @@ def run_cycle():
     except Exception as e:
         log(f'[ERROR ciclo]: {e} — reintentando en 30 minutos')
 
-# ── Main ─────────────────────────────────────────────py
+# ── Main ─────────────────────────────────────────────
 if __name__ == '__main__':
     log('🤖 Pharma Bot iniciando...')
     notify_start()
 
-    # Primer ciclo inmediato
     run_cycle()
 
-    # Luego cada 30 minutos
     schedule.every(30).minutes.do(run_cycle)
 
     log('Scheduler activo — ciclo cada 30 minutos')
