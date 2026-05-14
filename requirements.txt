@@ -1,0 +1,18 @@
+# Broker — Alpaca Markets
+alpaca-py==0.43.4
+
+# IA — Anthropic Claude
+anthropic==0.101.0
+
+# Datos de mercado y científicos
+requests==2.32.3
+pandas==3.0.3
+
+# Telegram notificaciones
+python-telegram-bot==22.7
+
+# Scheduler del bot
+schedule==1.2.2
+
+# Variables de entorno
+python-dotenv==1.0.1
