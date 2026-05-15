@@ -12,7 +12,7 @@ from alpaca_bridge import (get_account, is_market_open,
 from pharma_scanner import scan_opportunities
 from Multi_Person import get_swarm_signal
 from kelly import calculate_position
-from Notifier import notify_signal, notify_stop_loss, notify_start, notify_cycle
+from Notifier import notify_signal, notify_stop_loss, notify_start, notify_cycle, send
 
 load_dotenv()
 
@@ -125,6 +125,7 @@ def run_cycle():
 
     except Exception as e:
         log(f'[ERROR ciclo]: {e} — reintentando en 30 minutos')
+        send(f'⚠️ *Error en Pharma Bot*\n`{str(e)[:200]}`\nReintentando en 30 minutos')
 
 # ── Main ─────────────────────────────────────────────
 if __name__ == '__main__':
