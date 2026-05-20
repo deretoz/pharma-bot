@@ -84,12 +84,12 @@ def run_cycle():
         opportunities = scan_opportunities()
         log(f'Oportunidades encontradas: {len(opportunities)}')
 
-        notify_cycle(len(opportunities), account['cash'])
-
         if not opportunities:
             log('Sin oportunidades en este ciclo')
+            notify_cycle(0, account['cash'])
             return
 
+        trades_ejecutados = 0
         for opp in opportunities[:3]:
             log(f'\nAnalizando {opp["ticker"]} (score={opp["score"]})...')
             signal = get_swarm_signal(opp)
@@ -120,8 +120,10 @@ def run_cycle():
                 log(f'  Orden ejecutada: {result}')
 
             notify_signal(opp, signal, position)
+            trades_ejecutados += 1
 
         log(f'Ciclo completado: {datetime.now().strftime("%H:%M:%S")}')
+        notify_cycle(trades_ejecutados, account['cash'])
 
     except Exception as e:
         log(f'[ERROR ciclo]: {e} — reintentando en 30 minutos')
