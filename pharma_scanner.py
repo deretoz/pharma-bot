@@ -122,6 +122,11 @@ def scan_opportunities():
         price_data = get_price_data(ticker)
         score, reasons = score_opportunity(ticker, trials, fda, price_data)
 
+        # Ignorar si el precio es 0 o no disponible
+        if not price_data or price_data['current'] == 0:
+            print(f'  ✗ {ticker} — precio no disponible, saltando')
+            continue
+
         if score >= 40:
             opportunities.append({
                 'ticker':     ticker,
