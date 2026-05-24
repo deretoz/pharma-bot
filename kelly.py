@@ -1,16 +1,9 @@
-# kelly.py
+# kelly.py — v2
+# Usa distribución de probabilidad del Swarm v2
 
-def calculate_position(bankroll, edge, min_edge=0.05,
+def calculate_position(bankroll, edge, p_success=None,
+                       p_failure=None, min_edge=0.05,
                        max_pct=0.05, kelly_fraction=0.25):
-    """
-    Calcula el tamaño óptimo de posición usando Kelly Criterion.
-    
-    bankroll      : capital disponible en USD
-    edge          : ventaja estimada (ej: 0.10 = 10% sobre el 50% base)
-    min_edge      : edge mínimo para operar (default 5%)
-    max_pct       : máximo % del bankroll por trade (default 5%)
-    kelly_fraction: fracción de Kelly a usar (default 1/4 Kelly)
-    """
     if edge < min_edge:
         return {
             'dollar_amount': 0,
@@ -19,15 +12,19 @@ def calculate_position(bankroll, edge, min_edge=0.05,
             'motivo':        f'Edge {edge:.3f} menor al mínimo {min_edge}'
         }
 
-    # Kelly completo para apuesta binaria
-    kelly_full = edge * 2
+    # Si tenemos distribución completa, usar Kelly exacto
+    # f* = (p*b - q) / b  donde b = odds, p = p_success, q = p_failure
+    if p_success is not None and p_failure is not None:
+        b = p_success / max(p_failure, 0.01)  # odds implícitas
+        q = p_failure
+        kelly_full = (p_success * b - q) / b
+        kelly_full = max(0, kelly_full)  # nunca negativo
+    else:
+        kelly_full = edge * 2
 
-    # Kelly conservador (1/4 del Kelly completo)
-    kelly_safe = kelly_full * kelly_fraction
-
-    # Nunca superar el máximo por trade
-    position_pct    = min(kelly_safe, max_pct)
-    dollar_amount   = bankroll * position_pct
+    kelly_safe    = kelly_full * kelly_fraction
+    position_pct  = min(kelly_safe, max_pct)
+    dollar_amount = bankroll * position_pct
 
     return {
         'dollar_amount': round(dollar_amount, 2),
@@ -36,23 +33,19 @@ def calculate_position(bankroll, edge, min_edge=0.05,
         'motivo':        f'Kelly {kelly_full*100:.1f}% → seguro {position_pct*100:.1f}%'
     }
 
-# ── Test ─────────────────────────────────────────────
 if __name__ == '__main__':
-    print('=== Test Kelly Criterion ===')
-
+    print('=== Test Kelly v2 ===')
     casos = [
-        {'bankroll': 100000, 'edge': 0.03, 'desc': 'Edge insuficiente'},
-        {'bankroll': 100000, 'edge': 0.08, 'desc': 'Edge moderado'},
-        {'bankroll': 100000, 'edge': 0.15, 'desc': 'Edge alto'},
-        {'bankroll': 100000, 'edge': 0.25, 'desc': 'Edge muy alto'},
-        {'bankroll':    200, 'edge': 0.10, 'desc': 'Capital real pequeño ($200)'},
+        {'p_success': 0.662, 'p_failure': 0.186, 'desc': 'ARWR — swarm v2'},
+        {'p_success': 0.550, 'p_failure': 0.300, 'desc': 'Señal moderada'},
+        {'p_success': 0.480, 'p_failure': 0.350, 'desc': 'Sin edge — no operar'},
     ]
-
     for c in casos:
-        result = calculate_position(c['bankroll'], c['edge'])
+        edge = round(c['p_success'] - 0.50, 3)
+        r = calculate_position(100000, edge,
+                               p_success=c['p_success'],
+                               p_failure=c['p_failure'])
         print(f"\n  {c['desc']}")
-        print(f"    Bankroll: ${c['bankroll']:,.2f} | Edge: {c['edge']*100:.0f}%")
-        print(f"    Monto:    ${result['dollar_amount']:,.2f} ({result['pct_bankroll']}% del capital)")
-        print(f"    Detalle:  {result['motivo']}")
-
+        print(f"    p_success={c['p_success']} | edge={edge}")
+        print(f"    Monto: ${r['dollar_amount']:,.2f} | {r['motivo']}")
     print('\n=== OK ===')
