@@ -1,7 +1,6 @@
-[README.md](https://github.com/user-attachments/files/27737531/README.md)
 # 🤖 Pharma Bot
 
-Bot de trading automatizado especializado en acciones farmacéuticas y biotecnológicas del NASDAQ. Utiliza inteligencia artificial para analizar datos científicos en tiempo real (ensayos clínicos, aprobaciones FDA) y generar señales de compra/venta con gestión de riesgo automática.
+Bot de trading automatizado especializado en acciones farmacéuticas y biotecnológicas del NASDAQ. Combina un swarm de 5 agentes de IA con distribuciones de probabilidad matemáticas y un agente de Reinforcement Learning entrenado con datos históricos reales.
 
 ---
 
@@ -9,11 +8,13 @@ Bot de trading automatizado especializado en acciones farmacéuticas y biotecnol
 
 El bot corre un ciclo cada 30 minutos durante el horario de mercado (9:30am–4:00pm ET). En cada ciclo:
 
-1. **Escanea** la watchlist de empresas farmacéuticas buscando catalizadores científicos activos (ensayos Fase II/III, historial FDA, volumen inusual)
-2. **Analiza** cada oportunidad con un swarm de 5 agentes de IA, cada uno con una perspectiva distinta
-3. **Calcula** el tamaño óptimo de posición usando Kelly Criterion (1/4 Kelly conservador)
-4. **Ejecuta** la orden en Alpaca Markets (o simula en modo paper)
-5. **Notifica** cada decisión por Telegram en tiempo real
+1. **Escanea** la watchlist buscando catalizadores científicos activos (ensayos Fase II/III, historial FDA, volumen inusual)
+2. **Analiza** cada oportunidad con un swarm de 5 agentes IA — cada uno genera una distribución de probabilidad matemática independiente
+3. **Agrega** las distribuciones ponderadas por confianza para obtener `p_success`, `p_failure` y `p_neutral`
+4. **Valida** la señal con el agente de Reinforcement Learning (PPO) entrenado con 2 años de datos históricos
+5. **Opera** solo cuando swarm y RL están de acuerdo — double validation
+6. **Calcula** el tamaño óptimo de posición con Kelly Criterion usando las probabilidades reales
+7. **Notifica** cada decisión por Telegram en tiempo real
 
 ---
 
@@ -21,33 +22,96 @@ El bot corre un ciclo cada 30 minutos durante el horario de mercado (9:30am–4:
 
 ```
 pharma-bot/
-├── bot.py               # Orquestador principal — loop y scheduler
-├── pharma_scanner.py    # Detecta oportunidades (ClinicalTrials + FDA + precios)
-├── alpaca_bridge.py     # Broker connector — órdenes, precios, posiciones
-├── Multi_Person.py      # Swarm de 5 agentes IA (Claude Haiku)
-├── kelly.py             # Position sizing con Kelly Criterion
-├── Notifier.py          # Alertas por Telegram
+├── bot.py                  # Orquestador principal — loop y scheduler
+├── pharma_scanner.py       # Detecta oportunidades (ClinicalTrials + FDA + precios)
+├── alpaca_bridge.py        # Broker connector — órdenes, precios, posiciones
+├── Multi_Person.py         # Swarm v2 — 5 agentes con distribuciones de probabilidad
+├── kelly.py                # Kelly Criterion v2 con probabilidades matemáticas
+├── Notifier.py             # Alertas por Telegram
+├── rl_environment.py       # Entorno Gymnasium para entrenamiento RL
+├── rl_data_builder.py      # Pipeline de datos históricos + trades reales
+├── rl_agent.py             # Entrenamiento del agente PPO
+├── rl_bridge.py            # Puente RL ↔ Swarm — consenso en tiempo real
+├── backtest.py             # Backtesting histórico del sistema
 ├── data/
-│   └── watchlist.py     # Lista de empresas monitoreadas
+│   └── rl_dataset.csv      # Dataset histórico (2,148 filas, 5 empresas, 2 años)
+├── models/
+│   └── pharma_ppo.zip      # Agente PPO entrenado
 ├── logs/
-│   └── bot.log          # Registro de cada ciclo y trade
-├── .env                 # API keys (nunca subir a GitHub)
-└── requirements.txt     # Dependencias Python
+│   ├── bot.log             # Registro de cada ciclo
+│   └── trades.csv          # Historial de señales generadas
+├── .env                    # API keys (nunca subir a GitHub)
+└── requirements.txt        # Dependencias Python
 ```
 
 ---
 
-## Los 5 agentes IA
+## Flujo completo de decisión
 
-Cada oportunidad es analizada por 5 perspectivas independientes. El consenso determina la señal final:
+```
+Scanner detecta catalizador científico
+              ↓
+    Swarm v2 — 5 agentes IA
+    Cada agente genera:
+    { p_success, p_failure, p_neutral, confidence }
+              ↓
+    Agregador ponderado por confianza
+    → p_success / p_failure / edge final
+              ↓
+    Agente RL (PPO) analiza el estado
+    → acción independiente del mercado
+              ↓
+         RL Bridge
+    ┌─────────────────────┐
+    │ ¿Swarm == RL?       │
+    │ Sí → edge +25%      │
+    │ No → MANTENER       │
+    └─────────────────────┘
+              ↓
+    Kelly v2 calcula monto óptimo
+    usando p_success y p_failure reales
+              ↓
+    Orden ejecutada en Alpaca
+              ↓
+    Notificación Telegram
+```
 
-| Agente | Rol |
+---
+
+## Los 5 agentes IA — Swarm v2
+
+Cada agente genera una distribución de probabilidad matemática estricta basada en su especialidad:
+
+| Agente | Especialidad | Base de estimación |
+|---|---|---|
+| `biotech_analyst` | Solidez científica del ensayo | Tasas históricas por fase (Fase III: 58% base) |
+| `fda_expert` | Probabilidad regulatoria | Precedentes FDA, historial de aprobaciones/CRL |
+| `quant_trader` | Movimiento de precio | Volumen relativo, momentum 30d, capitalización |
+| `risk_manager` | Vectores de riesgo | Dilución, competidores, tipo de endpoint |
+| `contrarian` | Precio ya priceado | Movimiento previo, volumen pre-evento |
+
+El agregador combina las 5 distribuciones ponderadas por `confidence` — los agentes más seguros pesan más en la decisión final.
+
+---
+
+## Agente de Reinforcement Learning
+
+| Parámetro | Valor |
 |---|---|
-| `biotech_analyst` | Evalúa solidez científica del ensayo clínico |
-| `fda_expert` | Estima probabilidad de aprobación regulatoria |
-| `quant_trader` | Analiza momentum de precio y volumen |
-| `risk_manager` | Identifica razones por las que puede fallar |
-| `contrarian` | Argumenta por qué el mercado ya lo tiene priceado |
+| Algoritmo | PPO (Proximal Policy Optimization) |
+| Dataset de entrenamiento | 2,148 días (5 empresas, 2 años) |
+| Trades reales integrados | 90 trades del bot en paper trading |
+| Timesteps de entrenamiento | 50,000 |
+| State Space | 8 variables (precio, volumen, p_success, p_failure, posición, PnL) |
+| Action Space | 3 acciones (COMPRAR, MANTENER, VENDER) |
+
+**Resultados en datos de test:**
+
+| Estrategia | Retorno |
+|---|---|
+| Buy & Hold promedio | -15.6% |
+| Agente RL | **+62.2%** |
+| Ventaja sobre mercado | **+77.8%** |
 
 ---
 
@@ -61,7 +125,7 @@ Cada oportunidad es analizada por 5 perspectivas independientes. El consenso det
 
 ---
 
-## Watchlist inicial
+## Watchlist
 
 `ACAD` · `SAVA` · `AGEN` · `ARWR` · `RCUS` · `FATE` · `KALA` · `TNYA` · `CABA` · `RVNC`
 
@@ -89,7 +153,6 @@ source .venv/bin/activate
 pip install -r requirements.txt --only-binary=:all: -i https://pypi.org/simple/
 
 # 4. Configurar variables de entorno
-cp .env.example .env
 # Editar .env con tus API keys
 ```
 
@@ -106,15 +169,15 @@ ALPACA_BASE_URL=https://paper-api.alpaca.markets
 # IA — Anthropic Claude
 ANTHROPIC_API_KEY=
 
-# Telegram
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-
 # Config del bot
 DRY_RUN=True           # True = paper trading, False = dinero real
 MAX_POSITION_PCT=0.05  # Máximo 5% del capital por trade
 STOP_LOSS_PCT=-0.15    # Stop loss automático en -15%
 MIN_EDGE=0.05          # Edge mínimo para operar (5%)
+
+# Telegram
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
 ```
 
 ### Cuentas necesarias
@@ -133,33 +196,42 @@ MIN_EDGE=0.05          # Edge mínimo para operar (5%)
 
 # Correr el bot
 python bot.py
-```
 
-El bot detecta automáticamente si el mercado está abierto. Si está cerrado, espera al próximo ciclo.
+# Actualizar dataset y re-entrenar agente RL
+python rl_data_builder.py
+python rl_agent.py
+
+# Correr backtest histórico
+python backtest.py
+```
 
 ---
 
 ## Modo paper vs real
 
-El bot opera en **modo paper por defecto** (`DRY_RUN=True`). En este modo analiza y notifica por Telegram pero no ejecuta órdenes reales.
-
-Para pasar a trading real, cambiar en `.env`:
+El bot opera en **modo paper por defecto** (`DRY_RUN=True`). Para pasar a trading real:
 
 ```env
 ALPACA_BASE_URL=https://api.alpaca.markets
 DRY_RUN=False
 ```
 
-**Recomendación:** operar mínimo 30 trades en papel con win rate ≥ 55% antes de activar dinero real.
+**Checklist antes de operar con dinero real:**
+- ✅ 30+ trades en papel completados
+- ✅ Win rate ≥ 55% confirmado
+- ✅ Drawdown máximo < 25%
+- ✅ Stop losses probados y funcionando
+- ✅ Agente RL re-entrenado con datos reales del bot
 
 ---
 
 ## Gestión de riesgo
 
-- **Kelly Criterion** (1/4 Kelly) — limita cada trade al tamaño óptimo estadístico
+- **Double validation** — opera solo cuando swarm IA y agente RL coinciden
+- **Kelly Criterion v2** — usa `p_success` y `p_failure` reales para el tamaño óptimo
 - **Tope por trade** — nunca más del 5% del capital en una sola posición
 - **Stop loss automático** — cierra posiciones que caigan más del 15%
-- **Edge mínimo** — solo opera si el swarm detecta al menos 5% de ventaja
+- **Edge mínimo** — solo opera si el sistema detecta al menos 5% de ventaja
 
 ---
 
@@ -169,25 +241,43 @@ DRY_RUN=False
 |---|---|
 | Lenguaje | Python 3.11+ |
 | IA / LLM | Claude Haiku (Anthropic) |
+| Reinforcement Learning | Stable-Baselines3 PPO |
+| Entorno RL | Gymnasium |
+| Deep Learning | PyTorch |
 | Broker | Alpaca Markets |
 | Datos científicos | ClinicalTrials.gov · OpenFDA |
 | Notificaciones | Telegram Bot API |
 | Scheduler | schedule |
-| Datos de mercado | alpaca-py |
+
+---
+
+## Resultados actuales (paper trading)
+
+| Métrica | Valor |
+|---|---|
+| Días operando | 5 |
+| Total señales generadas | 90 |
+| Empresas activas | ACAD, ARWR, RCUS |
+| Edge promedio del swarm | ~10.5% |
+| Backtest 12 meses | +418% retorno |
+| Agente RL vs Buy&Hold | +77.8% ventaja |
 
 ---
 
 ## Roadmap
 
 - [x] Scanner de oportunidades farmacéuticas
-- [x] Swarm de 5 agentes IA
-- [x] Kelly Criterion para position sizing
-- [x] Ejecución automática via Alpaca
+- [x] Swarm v2 — distribuciones de probabilidad matemáticas
+- [x] Kelly Criterion v2 con probabilidades reales
+- [x] Agente RL (PPO) entrenado con datos históricos
+- [x] Double validation — consenso swarm + RL
 - [x] Alertas por Telegram
+- [x] Backtesting histórico
+- [ ] Re-entrenamiento automático del agente RL cada semana
 - [ ] Dashboard web con historial de trades
-- [ ] Modelo ML (XGBoost) para predicción de precios
 - [ ] NLP con BioBERT para análisis de publicaciones PubMed
 - [ ] Expansión de watchlist automática
+- [ ] Módulo de opciones financieras (calls pre-FDA)
 
 ---
 
