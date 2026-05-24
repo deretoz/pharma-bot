@@ -13,6 +13,7 @@ from pharma_scanner import scan_opportunities
 from Multi_Person import get_swarm_signal
 from kelly import calculate_position
 from Notifier import notify_signal, notify_stop_loss, notify_start, notify_cycle, send
+from rl_bridge import get_combined_signal
 
 load_dotenv()
 
@@ -93,6 +94,7 @@ def run_cycle():
         for opp in opportunities[:3]:
             log(f'\nAnalizando {opp["ticker"]} (score={opp["score"]})...')
             signal = get_swarm_signal(opp)
+            signal = get_combined_signal(opp, signal)
 
             min_edge = float(os.getenv('MIN_EDGE', 0.05))
             if signal['edge'] < min_edge:
@@ -101,7 +103,9 @@ def run_cycle():
 
             position = calculate_position(
                 bankroll=account['cash'],
-                edge=signal['edge']
+                edge=signal['edge'],
+                p_success=signal.get('p_success'),
+                p_failure=signal.get('p_failure')
             )
 
             if position['dollar_amount'] == 0:
